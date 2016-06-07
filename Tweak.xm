@@ -1,16 +1,3 @@
-// @interface SPSearchResult : NSObject
-// @property (nonatomic,retain) NSString * fbr; 
-// -(void)setTitle:(NSString *)arg1 ;
-// -(void)setSearchResultDomain:(unsigned)arg1 ;
-// -(void)setUrl:(NSString *)arg1 ;
-// @end
-
-// @interface SPSearchResultSection
-// @property (nonatomic, retain) NSString *displayIdentifier;
-// @property (nonatomic) unsigned int domain;
-// - (void)addResults:(SPSearchResult *)arg1;
-// @end
-
 @interface SPSearchAgent
 - (id)queryString;
 @end
@@ -35,51 +22,6 @@
 - (id)localizedDictionaryName;
 @end
 
-// @interface ASAssetQuery
-// -(id)initWithAssetType:(id)arg1;
-// -(id)runQueryAndReturnError:(NSError**)arg1;
-// -(NSPredicate *)predicate;
-// -(NSArray *)results;
-// @end
-
-// %hook ASAsset
-// -(id)initWithAssetType:(id)arg1 attributes:(id)arg2  {
-// 	//%log;
-// 	//HBLogDebug(@"class of arg1 = %@", [arg1 class]);
-// 	return %orig;
-// }
-// %end
-
-// static CFStringRef aCFString = CFStringCreateWithCString(kCFAllocatorDefault, "com.apple.MobileAsset.DictionaryServices.dictionary2", kCFStringEncodingMacRoman);
-
-// %hook ASAssetQuery
-// -(id)initWithAssetType:(id)arg1 {
-// 	%log;
-// 	return %orig;
-// }
-// // - (void)setPredicate:(id)arg1 {
-// // 	%log;
-// // 	%orig;
-// // }
-// - (void)setPredicate:(id*)arg1 {
-// 	%log;
-// 	%orig;	
-// }
-// // **NSError
-// -(id)runQueryAndReturnError:(id*)arg1 {
-// 	%log;
-// 	HBLogDebug(@"predicate = %@", [self predicate]);
-// 	return %orig;
-// }
-// + (id)queryPredicateForProperties:(id)arg1 {
-// 	%log;
-// 	return %orig;
-// }
-// -(void)startQuery:(/*^block*/id)arg1  {
-// 	%log;
-// 	%orig;
-// }
-// %end
 @interface SPSearchResult : NSObject
 @property (nonatomic,retain) NSString * fbr; 
 @property (nonatomic,retain) NSString * templateName; 
@@ -120,6 +62,21 @@
 - (SPSearchResultSection*)sectionAtIndex:(unsigned int)arg1;
 @end
 
+@interface SBUIController
++(SBUIController*)sharedInstance;
+-(void)setFakeSpringBoardStatusBarVisible:(BOOL)arg1 ;
+@end
+
+%hook SBUIController
+-(void)animateFakeStatusBarWithParameters:(id)arg1 transition:(id)arg2 {
+	%log;
+	%orig;
+}
+%end
+
+@interface SpringBoard : UIApplication
+-(id)statusBarWindow;
+@end
 
 static UIReferenceLibraryViewController *controller = nil;
 static SPUISearchModel *myModel = nil;
@@ -128,9 +85,56 @@ static bool didDefine = NO;
 %hook SBIconController
 - (_Bool)dismissSpotlightIfNecessary {
 	if(controller) {
-		[(SPUISearchViewController *)[%c(SPUISearchViewController) sharedInstance] actionManager:[(SPUISearchViewController *)[%c(SPUISearchViewController) sharedInstance] _actionManager] dismissViewController:controller completion:^{controller = nil;} animated:YES];
+		[(SPUISearchViewController *)[%c(SPUISearchViewController) sharedInstance] actionManager:[(SPUISearchViewController *)[%c(SPUISearchViewController) sharedInstance] _actionManager] dismissViewController:controller completion:^{ 
+			controller = nil; 
+		} animated:YES];
 	}
 	return %orig;
+}
+-(void)setModalPresentationCapturesStatusBarAppearance:(BOOL)arg1 {
+	if(controller) {
+		return %orig(YES);
+	} else {
+		%orig;
+	}
+}
+%end
+
+@interface UIReferenceLibraryViewController (extras)
+-(void)revertStatusBarStyle:(long long)arg1 currentStatusBarStyle:(long long)arg2 animated:(BOOL)arg3 ;
+@end
+
+%hook UIReferenceLibraryViewController
+- (UIStatusBarStyle) preferredStatusBarStyle { 
+	if(controller) {
+		HBLogDebug(@"setting controller statusbar");
+    	return UIStatusBarStyleLightContent; 
+    }
+    return %orig;
+}
+- (void)dismissViewControllerAnimated:(BOOL)flag completion:(void (^)(void))completion {
+	HBLogDebug(@"dismissing UIReferenceLibraryViewController");
+	if(self == controller) {
+		HBLogDebug(@"gotta change statusbar back to white");
+		//TODO: replace this with some animation
+		[(SBUIController *)[%c(SBUIController) sharedInstance] setFakeSpringBoardStatusBarVisible:NO];
+		if(completion != nil) {
+			HBLogDebug(@"completion is not nil");
+			completion = ^{ 
+				completion(); 
+				HBLogDebug(@"doing completion block");
+				controller = nil; 
+			};
+		} else {
+			HBLogDebug(@"completion is nil");
+			completion = ^{ 
+				HBLogDebug(@"doing nil completion block");
+				controller = nil; 
+			};
+		}
+	}
+	%orig;
+	
 }
 %end
 
@@ -138,16 +142,27 @@ static bool didDefine = NO;
 -(void)openURL:(NSURL *)arg1  {
 	if([arg1.pathComponents[0] isEqualToString:@"twerk_define:"]) {
 		controller = [[UIReferenceLibraryViewController alloc] initWithTerm:arg1.pathComponents[1]];
-		[self actionManager:[self _actionManager] presentViewController:controller completion:nil modally:YES];
+		[self actionManager:[self _actionManager] presentViewController:controller completion:^{
+			//TODO: replace with some animation
+				[(SBUIController *)[%c(SBUIController) sharedInstance] setFakeSpringBoardStatusBarVisible:YES];
+		} modally:YES];
 	} else {
 		%orig;
 	}
 }
 %end
 
-
-
 %hook SPUISearchModel 
+- (void)clear {
+	didDefine = NO;
+	controller = nil;
+	%orig;
+}
+- (void)clearParsecResultsIfStale {
+	didDefine = NO;
+	controller = nil;
+	%orig;
+}
 %new
 - (void)addDictionarySection {
 	SPSearchResultSection *newSection = [[%c(SPSearchResultSection) alloc] init];
@@ -162,13 +177,15 @@ static bool didDefine = NO;
 		myModel = self;
 		NSMutableAttributedString *def = [item definition];
 		NSString *str = [def string];
-		NSArray *lines = [str componentsSeparatedByString:@"\n"];
-		HBLogDebug(@"%@ = %@", [item localizedDictionaryName], lines[1]);
+		NSRange range = [str rangeOfString:@"\n"];
+		//NSArray *lines = [str componentsSeparatedByString:@"\n"];
+		str = [str substringFromIndex:range.location+1];
+		HBLogDebug(@"%@ = %@", [item localizedDictionaryName], str);
 
 		SPSearchResult *myOtherCustomThing = [[%c(SPSearchResult) alloc] init];
 		[myOtherCustomThing setTitle:[item localizedDictionaryName]];
 		// [myOtherCustomThing setSubtitle:lines[1]];
-		[myOtherCustomThing setSummary:lines[1]];
+		[myOtherCustomThing setSummary:str];
 		[myOtherCustomThing setHasNumberOfSummaryLines:YES];
 		[myOtherCustomThing setNumberOfSummaryLines:3];
 
@@ -188,7 +205,7 @@ static bool didDefine = NO;
 		// NSDictionary* dict = @{@"formatted_text":text, @"text_maxlines":@3};
 		// HBLogDebug(@"%@", dict);
 		// myOtherCustomThing.descriptions = @[dict];
-		myOtherCustomThing.resultDescription = lines[1];
+		myOtherCustomThing.resultDescription = str;
 		myOtherCustomThing.description_maxlines = 3;
 		[myOtherCustomThing setHasAssociatedUserActivity:NO];
 		[myOtherCustomThing setUserActivityEligibleForPublicIndexing:NO];
@@ -201,41 +218,37 @@ static bool didDefine = NO;
 }
 
 - (void)addSections:(NSMutableArray *)arg1 {
-	SPSearchResultSection *firstSection = [arg1 objectAtIndex:0];
-	for(SPSearchResultSection *res in arg1) {
-		SPSearchResult *first = [res resultsAtIndex:0];
-		HBLogDebug(@"%@", [first descriptions][0]);
-		HBLogDebug(@"%@", [[first descriptions][0] class]);
-	}
-	
-	if(firstSection.domain == 1) {
-		// ASAssetQuery * aq = [[%c(ASAssetQuery) alloc] initWithAssetType:@"com.apple.MobileAsset.DictionaryServices.dictionary2"];
-		// NSError *err = nil;
-		// id ret = [aq runQueryAndReturnError:&err];
-		// HBLogDebug(@"err = %@", err);
-		// NSArray *results = [aq results];
-		// HBLogDebug(@"results = %@", results);
-		// HBLogDebug(@"ret = %@", ret);
+	if([arg1 count] > 0) {
+		SPSearchResultSection *firstSection = [arg1 objectAtIndex:0];
+		
+		if(firstSection.domain == 1) {
+			// ASAssetQuery * aq = [[%c(ASAssetQuery) alloc] initWithAssetType:@"com.apple.MobileAsset.DictionaryServices.dictionary2"];
+			// NSError *err = nil;
+			// id ret = [aq runQueryAndReturnError:&err]; 
+			// HBLogDebug(@"err = %@", err);
+			// NSArray *results = [aq results];
+			// HBLogDebug(@"results = %@", results);
+			// HBLogDebug(@"ret = %@", ret);
 
-		if([UIReferenceLibraryViewController dictionaryHasDefinitionForTerm:[self queryString]]) {
-			didDefine = YES;
-			//might want to move this outside of firstsection.domain == 1
-			[self addDictionarySection];
+			if([UIReferenceLibraryViewController dictionaryHasDefinitionForTerm:[self queryString]]) {
+				didDefine = YES;
+				//might want to move this outside of firstsection.domain == 1
+				[self addDictionarySection];
 
-			NSString *searchDefQuery = [NSString stringWithFormat:@"twerk_define://%@", [self queryString]];
+				NSString *searchDefQuery = [NSString stringWithFormat:@"twerk_define://%@", [self queryString]];
 
-			SPSearchResult *myOtherCustomThing = [[%c(SPSearchResult) alloc] init];
-			[myOtherCustomThing setTitle:@"Search Dictionary"];
-			[myOtherCustomThing setSearchResultDomain:1];
-			[myOtherCustomThing setUrl:searchDefQuery];
-			myOtherCustomThing.fbr = @"search_define"; 
+				SPSearchResult *myOtherCustomThing = [[%c(SPSearchResult) alloc] init];
+				[myOtherCustomThing setTitle:@"Search Dictionary"];
+				[myOtherCustomThing setSearchResultDomain:1];
+				[myOtherCustomThing setUrl:searchDefQuery];
+				myOtherCustomThing.fbr = @"search_define"; 
 
-			[firstSection addResults:myOtherCustomThing];
-		} else {
-			didDefine = NO;
+				[firstSection addResults:myOtherCustomThing];
+			} else {
+				didDefine = NO;
+			}
 		}
 	}
-	
 	%orig(arg1);
 }
 %end
@@ -251,15 +264,19 @@ static bool didDefine = NO;
 @end
 %hook SPUISearchTableHeaderView
 - (void)updateWithTitle:(id)arg1 section:(unsigned int)arg2 isExpanded:(BOOL)arg3 {
-	%log;
 	bool newArg3 = arg3;
+	HBLogDebug(@"didDefine %d = %d", arg2, didDefine);
 	if(didDefine) {
 		SPUISearchViewController *vcont = [%c(SPUISearchViewController) sharedInstance];
 		SPUISearchTableView *tableview = MSHookIvar<SPUISearchTableView *>(vcont, "_tableView");
 		if([[myModel sectionAtIndex:arg2].displayIdentifier isEqual:@"Dictionary"]) {
 			arg1 = @"Dictionary";
-		} else  if(self.section == tableview.numberOfSections-1) { // definitions is always the last section
+		} else if(self.section == tableview.numberOfSections-1) { // definitions is always the last section
+			HBLogDebug(@"gonna hide button and expand");
 			[self setMoreButtonVisible:NO];
+			if(![tableview sectionIsExpanded:self.section]) {
+				[tableview toggleExpansionForSection:self.section];
+			}
 			arg3 = YES;
 		}
 	}
