@@ -1,7 +1,7 @@
 Package: org.thebigboss.searchdefine
 Name: SearchDefine
 Depends: mobilesubstrate
-Version: 0.0.1
+Version: 1.0
 Architecture: iphoneos-arm
 Description: Add the dictionary to Spotlight!
 Maintainer: twodayslate

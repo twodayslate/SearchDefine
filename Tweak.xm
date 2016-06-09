@@ -140,12 +140,11 @@ static bool didDefine = NO;
 
 %hook SPUISearchViewController
 -(void)openURL:(NSURL *)arg1  {
-	if([arg1.pathComponents[0] isEqualToString:@"twerk_define:"]) {
+	if(arg1 && arg1.pathComponents.count > 0 && [arg1.pathComponents[0] isEqualToString:@"twerk_define:"]) {
 		controller = [[UIReferenceLibraryViewController alloc] initWithTerm:arg1.pathComponents[1]];
-		[self actionManager:[self _actionManager] presentViewController:controller completion:^{
-			//TODO: replace with some animation
-				[(SBUIController *)[%c(SBUIController) sharedInstance] setFakeSpringBoardStatusBarVisible:YES];
-		} modally:YES];
+		//TODO: replace with some animation
+		[(SBUIController *)[%c(SBUIController) sharedInstance] setFakeSpringBoardStatusBarVisible:YES];
+		[self actionManager:[self _actionManager] presentViewController:controller completion:nil modally:YES];
 	} else {
 		%orig;
 	}
