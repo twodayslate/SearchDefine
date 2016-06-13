@@ -261,33 +261,49 @@ static bool didDefine = NO;
 - (void)toggleExpansionForSection:(unsigned int)arg1;
 - (BOOL)sectionIsExpanded:(int)arg1;
 @end
+
+%hook SPUISearchTableView
+- (id)cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+	if(didDefine && indexPath.section == self.numberOfSections-1) {
+		if(![self sectionIsExpanded:indexPath.section]) {
+			HBLogDebug(@"toggling expansion state %d", (int) indexPath.section);
+			[self toggleExpansionForSection:indexPath.section];
+		}
+	}
+	return %orig;
+}
+%end
+
 %hook SPUISearchTableHeaderView
 - (void)updateWithTitle:(id)arg1 section:(unsigned int)arg2 isExpanded:(BOOL)arg3 {
 	bool newArg3 = arg3;
 	HBLogDebug(@"didDefine %d = %d", arg2, didDefine);
 	if(didDefine) {
-		SPUISearchViewController *vcont = [%c(SPUISearchViewController) sharedInstance];
-		SPUISearchTableView *tableview = MSHookIvar<SPUISearchTableView *>(vcont, "_tableView");
+		// SPUISearchViewController *vcont = [%c(SPUISearchViewController) sharedInstance];
+		// SPUISearchTableView *tableview = MSHookIvar<SPUISearchTableView *>(vcont, "_tableView");
 		if([[myModel sectionAtIndex:arg2].displayIdentifier isEqual:@"Dictionary"]) {
 			arg1 = @"Dictionary";
-		} else if(self.section == tableview.numberOfSections-1) { // definitions is always the last section
-			HBLogDebug(@"gonna hide button and expand");
-			[self setMoreButtonVisible:NO];
-			if(![tableview sectionIsExpanded:self.section]) {
-				[tableview toggleExpansionForSection:self.section];
-			}
-			arg3 = YES;
 		}
+		// } else if(self.section == tableview.numberOfSections-1) { // definitions is always the last section
+		// 	@try {
+		// 		HBLogDebug(@"checking if section is expanded %d", self.section);
+		// 		if(![tableview sectionIsExpanded:self.section]) {
+		// 			HBLogDebug(@"toggling expansion state %d", self.section);
+		// 			[tableview toggleExpansionForSection:self.section];
+		// 			arg3 = YES;
+		// 		}
+		// 	} @catch (NSException *exception) {
+	 //        	HBLogDebug(@"%@", exception.reason);
+	 //    	}
+		// }
 	}
 	%orig(arg1, arg2, newArg3);
 }
+
 - (void)setMoreButtonVisible:(BOOL)arg1 {
 	SPUISearchViewController *vcont = [%c(SPUISearchViewController) sharedInstance];
 	SPUISearchTableView *tableview = MSHookIvar<SPUISearchTableView *>(vcont, "_tableView");
 	if(didDefine && self.section == tableview.numberOfSections-1) { // definitions is always the last section
-		if(![tableview sectionIsExpanded:self.section]) {
-			[tableview toggleExpansionForSection:self.section];
-		}
 		%orig(NO);
 	} else {
 		%orig;
